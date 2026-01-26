@@ -1,0 +1,6 @@
+env: "local"
+storage_path: 
+refresh_token_ttl: 720h
+grpc:
+  port: 44044
+  timeout: 10h
