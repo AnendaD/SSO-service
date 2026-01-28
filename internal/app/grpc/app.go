@@ -45,6 +45,7 @@ func New(
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		recovery.UnaryServerInterceptor(recoveryOpts...),
+		authgrpc.AuthInterceptor(authService),
 		logging.UnaryServerInterceptor(InterceptorLogger(log), loggingOpts...),
 	))
 

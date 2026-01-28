@@ -7,6 +7,8 @@ import (
 	"sso/internal/app"
 	"sso/internal/config"
 	"sso/internal/lib/logger/handlers/slogpretty"
+	"sso/internal/proxy"
+	"sync"
 	"syscall"
 )
 
@@ -27,15 +29,38 @@ func main() {
 
 	application := app.New(log, cfg.GRPC.Port, cfg.StoragePath, cfg.TokenTTL, cfg.RefreshTokenTTL)
 
-	application.GRPCServer.MustRun()
+	var wg sync.WaitGroup
+
+	// Запускаем gRPC сервер в горутине
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Info("starting gRPC server", slog.Int("port", cfg.GRPC.Port))
+		application.GRPCServer.MustRun()
+	}()
+
+	// Запускаем HTTP прокси сервер в горутине
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		server := proxy.NewProxyServer("localhost:44044")
+		if err := server.Start("8080", log); err != nil {
+			log.Error("failed to start proxy server", slog.String("error", err.Error()))
+			panic("failed to start proxy server")
+		}
+	}()
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)
 
 	<-stop
 
+	log.Info("shutting down application...")
+
+	// Останавливаем gRPC сервер
 	application.GRPCServer.Stop()
 
-	log.Info("applicantion stopped")
+	log.Info("application stopped")
 }
 
 func setupLogger(env string) *slog.Logger {

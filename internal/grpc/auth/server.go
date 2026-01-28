@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"sso/internal/services/auth"
+	"strings"
 
 	ssov1 "github.com/AnendaD/protos/gen/go/sso"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -26,6 +28,8 @@ type Auth interface {
 		password string,
 	) (userID int64, err error)
 	IsAdmin(ctx context.Context, userID int64) (bool, error)
+	IsAdminByToken(ctx context.Context, token string) (bool, error)
+	ValidateToken(ctx context.Context, token string) (int64, error)
 	RefreshTokens(ctx context.Context, refreshToken string) (string, string, error)
 	Logout(ctx context.Context, refreshToken string) error
 	LogoutAll(ctx context.Context, userID int64, appID int) error
@@ -86,20 +90,30 @@ func (s *serverAPI) IsAdmin(
 	req *ssov1.IsAdminRequest,
 ) (*ssov1.IsAdminResponse, error) {
 	if err := validateIsAdmin(req); err != nil {
-		return nil, status.Error(codes.Internal, "internal error")
+		return nil, err
 	}
 
-	isAdmin, err := s.auth.IsAdmin(ctx, req.GetUserId())
-	if err != nil {
-		if errors.Is(err, auth.ErrUserNotFound) {
-			return nil, status.Error(codes.NotFound, "user not found")
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		if authHeaders := md.Get("authorization"); len(authHeaders) > 0 {
+			token := strings.TrimPrefix(authHeaders[0], "Bearer ")
+			if token != "" {
+				// Используем токен для проверки
+				isAdmin, err := s.auth.IsAdminByToken(ctx, token)
+				if err != nil {
+					if errors.Is(err, auth.ErrUserNotFound) {
+						return nil, status.Error(codes.NotFound, "user not found")
+					}
+					return nil, status.Error(codes.Internal, "internal error")
+				}
+
+				return &ssov1.IsAdminResponse{
+					IsAdmin: isAdmin,
+				}, nil
+			}
 		}
-		return nil, status.Error(codes.Internal, "internal error")
 	}
-
-	return &ssov1.IsAdminResponse{
-		IsAdmin: isAdmin,
-	}, nil
+	return nil, status.Error(codes.Internal, "internal error")
 }
 
 func (s *serverAPI) Refresh(
@@ -189,7 +203,7 @@ func validateRegister(req *ssov1.RegisterRequest) error {
 
 func validateIsAdmin(req *ssov1.IsAdminRequest) error {
 	if req.GetUserId() == emptyValue {
-		return status.Error(codes.InvalidArgument, "user_id is required")
+		return nil
 	}
 
 	return nil

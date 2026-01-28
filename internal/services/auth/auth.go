@@ -36,6 +36,7 @@ type UserSaver interface {
 
 type UserProvider interface {
 	User(ctx context.Context, email string) (models.User, error)
+	UserByID(ctx context.Context, userID int64) (models.User, error)
 	IsAdmin(ctx context.Context, userID int64) (bool, error)
 }
 
@@ -66,6 +67,7 @@ var (
 	ErrUserNotFound        = errors.New("user not found")
 	ErrRefreshTokenExpired = errors.New("refresh token expired")
 	ErrRefreshTokenInvalid = errors.New("refresh token invalid")
+	ErrAccessTokenNotFound = errors.New("access token not found")
 )
 
 // New returns a new instance of the Auth service
@@ -180,7 +182,7 @@ func (a *Auth) RefreshTokens(
 	}
 
 	// Получение пользователя и приложения
-	user, err := a.usrProvider.User(ctx, fmt.Sprintf("%d", rt.UserID))
+	user, err := a.usrProvider.UserByID(ctx, rt.UserID)
 	if err != nil {
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
@@ -216,6 +218,34 @@ func (a *Auth) RefreshTokens(
 	log.Info("token refreshed successfully")
 
 	return newAccessToken, newRefreshToken, nil
+}
+
+func (a *Auth) ValidateToken(ctx context.Context, tokenString string) (int64, error) {
+	const op = "auth.ValidateToken"
+
+	claims, err := jwt.ParseTokenWithoutValidation(tokenString)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", op, jwt.ErrInvalidToken)
+	}
+
+	app, err := a.appProvider.App(ctx, claims.AppID)
+	if err != nil {
+		if errors.Is(err, storage.ErrAppNotFound) {
+			return 0, fmt.Errorf("%s: %w", op, jwt.ErrInvalidToken)
+		}
+		return 0, fmt.Errorf("%s: %w", op, err)
+	}
+
+	validatedClaims, err := jwt.ValidateToken(tokenString, app.Secret)
+	if err != nil {
+		if errors.Is(err, jwt.ErrExpiredToken) {
+			// Токен истек, но мы можем использовать claims для refresh
+			return claims.UserID, jwt.ErrExpiredToken
+		}
+		return 0, fmt.Errorf("%s: %w", op, jwt.ErrInvalidToken)
+	}
+
+	return validatedClaims.UserID, nil
 }
 
 func (a *Auth) Logout(
@@ -312,4 +342,25 @@ func (a *Auth) IsAdmin(ctx context.Context, userID int64) (bool, error) {
 	log.Info("checked if user is admin", slog.Bool("is_admin", isAdmin))
 
 	return isAdmin, nil
+}
+
+func (a *Auth) IsAdminByToken(ctx context.Context, tokenString string) (bool, error) {
+	const op = "auth.IsAdminByToken"
+
+	userID, err := a.ValidateToken(ctx, tokenString)
+	if err != nil {
+		// Если токен истек, но мы все равно хотим проверить администратора
+		if errors.Is(err, jwt.ErrExpiredToken) {
+			// Извлекаем claims из истекшего токена
+			claims, parseErr := jwt.ParseTokenWithoutValidation(tokenString)
+			if parseErr != nil {
+				return false, fmt.Errorf("%s: %w", op, jwt.ErrInvalidToken)
+			}
+			userID = claims.UserID
+		} else {
+			return false, fmt.Errorf("%s: %w", op, err)
+		}
+	}
+
+	return a.IsAdmin(ctx, userID)
 }

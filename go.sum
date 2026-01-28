@@ -1,5 +1,7 @@
-github.com/AnendaD/protos v0.0.2 h1:14w35+uBj/66Ijvo9NDj1RoscIrUBGeDXXtadM+CNq8=
+github.com/AnendaD/protos v0.0.2 h1:A0NweD7M3u6YuGOrP+I9VU/DWSA70LwKrmD2Lxh+gdw=
 github.com/AnendaD/protos v0.0.2/go.mod h1:p14m37gzrVtSVoPmDRzfMMeDhD3ee229t2bFn3FoJG0=
+github.com/AnendaD/protos v0.0.3 h1:5jJ48uAEIRb4VNmSlohyGO/WwSxNHSBR1bhFG6fIGto=
+github.com/AnendaD/protos v0.0.3/go.mod h1:p14m37gzrVtSVoPmDRzfMMeDhD3ee229t2bFn3FoJG0=
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 h1:L/gRVlceqvL25UVaW/CKtUDjefjrs0SPonmDGUVOYP0=
 github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161/go.mod h1:xomTg63KZ2rFqZQzSB4Vz2SUXa1BpHTVz9L5PTmPC4E=
 github.com/BurntSushi/toml v1.2.1 h1:9F2/+DoOYIOksmaJFPw1tGFy1eDnIJXg+UHjuD8lTak=

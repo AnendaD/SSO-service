@@ -1,5 +1,6 @@
 env: "local"
-storage_path: 
+storage_path: "postgres://postgres:Ananda31%24%24@localhost:5432/users?sslmode=disable"
+token_ttl: 1h
 refresh_token_ttl: 720h
 grpc:
   port: 44044
