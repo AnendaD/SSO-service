@@ -27,7 +27,7 @@ func main() {
 		slog.String("env", cfg.Env),
 	)
 
-	application := app.New(log, cfg.GRPC.Port, cfg.StoragePath, cfg.TokenTTL, cfg.RefreshTokenTTL)
+	application := app.New(log, 44044, cfg.StoragePath, cfg.TokenTTL, cfg.RefreshTokenTTL)
 
 	var wg sync.WaitGroup
 
@@ -35,7 +35,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		log.Info("starting gRPC server", slog.Int("port", cfg.GRPC.Port))
+		log.Info("starting gRPC server", slog.Int("port", 44044))
 		application.GRPCServer.MustRun()
 	}()
 
@@ -44,7 +44,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		server := proxy.NewProxyServer("localhost:44044")
-		if err := server.Start("8080", log); err != nil {
+		if err := server.Start("8081", log); err != nil {
 			log.Error("failed to start proxy server", slog.String("error", err.Error()))
 			panic("failed to start proxy server")
 		}

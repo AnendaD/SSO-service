@@ -4,6 +4,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
+	"os"
+	"strings"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
@@ -11,34 +14,53 @@ import (
 )
 
 func main() {
-	var storagePath, migrationsPath, migrationsTable string
+	var databaseURL, migrationsPath, migrationsTable string
 
-	flag.StringVar(&storagePath, "storage-path", "", "path to storage")
+	flag.StringVar(&databaseURL, "database-url", "", "database URL (postgres://...)")
 	flag.StringVar(&migrationsPath, "migrations-path", "", "path to migrations")
 	flag.StringVar(&migrationsTable, "migrations-table", "migrations", "name of migrations table")
 	flag.Parse()
 
-	if storagePath == "" {
-		panic("storage-path is required")
+	if databaseURL == "" {
+		// Пробуем из переменной окружения
+		databaseURL = os.Getenv("DATABASE_URL")
+	}
+
+	if databaseURL == "" {
+		log.Fatal("database-url is required (or set DATABASE_URL env)")
 	}
 	if migrationsPath == "" {
-		panic("migrations-path is required")
+		log.Fatal("migrations-path is required")
+	}
+
+	log.Printf("Connecting to database...")
+	log.Printf("Migrations path: %s", migrationsPath)
+
+	// Правильно формируем URL с параметром таблицы миграций
+	var fullURL string
+	if strings.Contains(databaseURL, "?") {
+		// Если в URL уже есть параметры, добавляем через &
+		fullURL = fmt.Sprintf("%s&x-migrations-table=%s", databaseURL, migrationsTable)
+	} else {
+		// Если параметров нет, добавляем через ?
+		fullURL = fmt.Sprintf("%s?x-migrations-table=%s", databaseURL, migrationsTable)
 	}
 
 	m, err := migrate.New(
 		"file://"+migrationsPath,
-		fmt.Sprintf("postgres://postgres:%s&x-migrations-table=%s", storagePath, migrationsTable),
+		fullURL,
 	)
 	if err != nil {
-		panic(err)
+		log.Fatalf("failed to create migrate instance: %v", err)
 	}
 
 	if err := m.Up(); err != nil {
 		if errors.Is(err, migrate.ErrNoChange) {
-			fmt.Println("no migrations to apply")
+			log.Println("no migrations to apply")
 			return
 		}
-		panic(err)
+		log.Fatalf("failed to apply migrations: %v", err)
 	}
-	fmt.Println("migrations applied successfully")
+
+	log.Println("migrations applied successfully")
 }
