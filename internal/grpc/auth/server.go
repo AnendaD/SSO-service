@@ -18,15 +18,8 @@ const (
 )
 
 type Auth interface {
-	Login(ctx context.Context,
-		email string,
-		password string,
-		appId int,
-	) (accessToken string, refreshToken string, err error)
-	RegisterNewUser(ctx context.Context,
-		email string,
-		password string,
-	) (userID int64, err error)
+	Login(ctx context.Context, email string, password string, appId int) (accessToken string, refreshToken string, err error)
+	RegisterNewUser(ctx context.Context, email string, password string) (userID int64, err error)
 	IsAdmin(ctx context.Context, userID int64) (bool, error)
 	IsAdminByToken(ctx context.Context, token string) (bool, error)
 	ValidateToken(ctx context.Context, token string) (int64, error)
@@ -34,6 +27,7 @@ type Auth interface {
 	Logout(ctx context.Context, refreshToken string) error
 	LogoutAll(ctx context.Context, userID int64, appID int) error
 }
+
 type serverAPI struct {
 	ssov1.UnimplementedAuthServer
 	auth Auth
@@ -43,11 +37,7 @@ func Register(gRPC *grpc.Server, auth Auth) {
 	ssov1.RegisterAuthServer(gRPC, &serverAPI{auth: auth})
 }
 
-func (s *serverAPI) Login(
-	ctx context.Context,
-	req *ssov1.LoginRequest,
-) (*ssov1.LoginResponse, error) {
-
+func (s *serverAPI) Login(ctx context.Context, req *ssov1.LoginRequest) (*ssov1.LoginResponse, error) {
 	if err := validateLogin(req); err != nil {
 		return nil, err
 	}
@@ -66,10 +56,7 @@ func (s *serverAPI) Login(
 	}, nil
 }
 
-func (s *serverAPI) Register(
-	ctx context.Context,
-	req *ssov1.RegisterRequest,
-) (*ssov1.RegisterResponse, error) {
+func (s *serverAPI) Register(ctx context.Context, req *ssov1.RegisterRequest) (*ssov1.RegisterResponse, error) {
 	if err := validateRegister(req); err != nil {
 		return nil, err
 	}
@@ -85,10 +72,7 @@ func (s *serverAPI) Register(
 	}, nil
 }
 
-func (s *serverAPI) IsAdmin(
-	ctx context.Context,
-	req *ssov1.IsAdminRequest,
-) (*ssov1.IsAdminResponse, error) {
+func (s *serverAPI) IsAdmin(ctx context.Context, req *ssov1.IsAdminRequest) (*ssov1.IsAdminResponse, error) {
 	if err := validateIsAdmin(req); err != nil {
 		return nil, err
 	}
@@ -116,10 +100,7 @@ func (s *serverAPI) IsAdmin(
 	return nil, status.Error(codes.Internal, "internal error")
 }
 
-func (s *serverAPI) Refresh(
-	ctx context.Context,
-	req *ssov1.RefreshRequest,
-) (*ssov1.RefreshResponse, error) {
+func (s *serverAPI) Refresh(ctx context.Context, req *ssov1.RefreshRequest) (*ssov1.RefreshResponse, error) {
 	if req.GetRefreshToken() == "" {
 		return nil, status.Error(codes.InvalidArgument, "refresh token is required")
 	}
@@ -137,10 +118,7 @@ func (s *serverAPI) Refresh(
 	}, nil
 }
 
-func (s *serverAPI) Logout(
-	ctx context.Context,
-	req *ssov1.LogoutRequest,
-) (*ssov1.LogoutResponse, error) {
+func (s *serverAPI) Logout(ctx context.Context, req *ssov1.LogoutRequest) (*ssov1.LogoutResponse, error) {
 	if req.GetRefreshToken() == "" {
 		return nil, status.Error(codes.InvalidArgument, "refresh token is required")
 	}
@@ -154,10 +132,7 @@ func (s *serverAPI) Logout(
 	}, nil
 }
 
-func (s *serverAPI) LogoutAll(
-	ctx context.Context,
-	req *ssov1.LogoutAllRequest,
-) (*ssov1.LogoutAllResponse, error) {
+func (s *serverAPI) LogoutAll(ctx context.Context, req *ssov1.LogoutAllRequest) (*ssov1.LogoutAllResponse, error) {
 	if req.GetUserId() == 0 {
 		return nil, status.Error(codes.InvalidArgument, "user id is required")
 	}

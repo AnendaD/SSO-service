@@ -35,25 +35,28 @@ func createApp(name, dbPath string) error {
 	const op = "lib.app.createApp"
 
 	secret, err := models.GenerateAppSecret()
-	fmt.Printf("secret: %s", secret)
-
 	if err != nil {
 		return fmt.Errorf("%s: %w ", op, err)
 	}
+	fmt.Printf("secret: %s", secret)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	storage, err := postgres.New(dbPath)
+	pool, err := postgres.NewPool(ctx, dbPath, 1, 1)
 	if err != nil {
 		return fmt.Errorf("%s: %w ", op, err)
 	}
+	defer pool.Close()
 
-	appID, err := storage.SaveApp(ctx, name, secret)
+	repo := postgres.NewRepository(pool)
+
+	appID, err := repo.SaveApp(ctx, name, secret)
 	if err != nil {
 		return fmt.Errorf("%s: %w ", op, err)
 	}
 	fmt.Println("app added successfully")
-	fmt.Printf("id: %d", &appID)
+	fmt.Printf("id: %d", appID)
+	fmt.Printf("name: %d", name)
 	return nil
 }

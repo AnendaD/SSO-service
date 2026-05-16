@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"time"
 
 	authgrpc "sso/internal/grpc/auth"
 
@@ -26,18 +27,17 @@ func New(
 	log *slog.Logger,
 	authService authgrpc.Auth,
 	port int,
+	timeoutDuration time.Duration,
 ) *App {
 	loggingOpts := []logging.Option{
 		logging.WithLogOnEvents(
-			//logging.StartCall, logging.FinishCall,
-			logging.PayloadReceived, logging.PayloadSent,
+			logging.StartCall, logging.FinishCall,
 		),
-		// Add any other option (check functions starting with logging.With).
 	}
 
 	recoveryOpts := []recovery.Option{
 		recovery.WithRecoveryHandler(func(p interface{}) (err error) {
-			log.Error("Recovered from panic", slog.Any("panic", p))
+			log.Error("recovered from panic", slog.Any("panic", p))
 
 			return status.Errorf(codes.Internal, "internal error")
 		}),
@@ -45,6 +45,7 @@ func New(
 
 	gRPCServer := grpc.NewServer(grpc.ChainUnaryInterceptor(
 		recovery.UnaryServerInterceptor(recoveryOpts...),
+		InterceptorTimeout(timeoutDuration),
 		authgrpc.AuthInterceptor(authService),
 		logging.UnaryServerInterceptor(InterceptorLogger(log), loggingOpts...),
 	))
@@ -59,11 +60,19 @@ func New(
 }
 
 // InterceptorLogger adapts slog logger to interceptor logger.
-// This code is simple enough to be copied and not imported.
 func InterceptorLogger(l *slog.Logger) logging.Logger {
 	return logging.LoggerFunc(func(ctx context.Context, lvl logging.Level, msg string, fields ...any) {
 		l.Log(ctx, slog.Level(lvl), msg, fields...)
 	})
+}
+
+// InterceptorTimeout adds timeout to request.
+func InterceptorTimeout(timeout time.Duration) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return handler(ctx, req)
+	}
 }
 
 // MustRun runs gRPC server and panics if any error occurs.
@@ -92,11 +101,22 @@ func (a *App) Run() error {
 }
 
 // Stop stops gRPC server.
-func (a *App) Stop() {
+func (a *App) Stop(ctx context.Context) error {
 	const op = "grpcapp.Stop"
 
-	a.log.With(slog.String("op", op)).
-		Info("stopping gRPC server", slog.Int("port", a.port))
+	done := make(chan struct{})
+	go func() {
+		a.gRPCServer.GracefulStop()
+		close(done)
+	}()
 
-	a.gRPCServer.GracefulStop()
+	select {
+	case <-done:
+		a.log.With(slog.String("op", op)).Info("gRPC server stopped gracefully")
+		return nil
+	case <-ctx.Done():
+		a.log.With(slog.String("op", op)).Warn("graceful stop timeout, forcing stop")
+	}
+	a.gRPCServer.Stop()
+	return ctx.Err()
 }

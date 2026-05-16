@@ -2,183 +2,147 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"sso/internal/domain/models"
 	"sso/internal/storage"
 	"time"
 
-	"github.com/lib/pq"
-	_ "github.com/lib/pq"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Storage struct {
-	db *sql.DB
+type Repository struct {
+	pool *pgxpool.Pool
 }
 
-func New(connStr string) (*Storage, error) {
-	const op = "storage.postgres.New"
+func NewPool(ctx context.Context, databaseURL string, maxConns int, minConns int) (*pgxpool.Pool, error) {
+	const op = "storage.postgres.NewPool"
 
-	db, err := sql.Open("postgres", connStr)
+	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
+	cfg.MinConns = int32(minConns)
+	cfg.MaxConns = int32(maxConns)
 
-	return &Storage{db: db}, nil
-
+	return pgxpool.NewWithConfig(ctx, cfg)
 }
 
-func (s *Storage) Stop() error {
-	return s.db.Close()
+func NewRepository(pool *pgxpool.Pool) *Repository {
+	return &Repository{pool}
 }
 
-func (s *Storage) SaveApp(ctx context.Context, name, secret string) (int64, error) {
+func (r *Repository) SaveApp(ctx context.Context, name, secret string) (int64, error) {
 	const op = "storage.postgres.SaveApp"
-
-	stmt, err := s.db.Prepare("INSERT INTO apps(name, secret) VALUES($1, $2) RETURNING id")
-
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", op, err)
-	}
-
-	row := stmt.QueryRowContext(ctx, name, secret)
-
 	var id int64
-	err = row.Scan(&id)
+	err := r.pool.QueryRow(ctx, `
+        INSERT INTO apps (name, secret)
+        VALUES ($1, $2)
+        RETURNING id
+    `, name, secret).Scan(&id)
 	if err != nil {
-		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-			return 0, fmt.Errorf("%s: %w", op, storage.ErrAppExists)
-		}
 		return 0, fmt.Errorf("%s: %w", op, err)
 	}
 	return id, nil
 }
 
-func (s *Storage) SaveUser(ctx context.Context, email string, passHash []byte) (int64, error) {
+func (r *Repository) SaveUser(ctx context.Context, email string, passHash []byte) (int64, error) {
 	const op = "storage.postgres.SaveUser"
 
-	stmt, err := s.db.Prepare("INSERT INTO users(email, pass_hash) VALUES($1, $2) RETURNING id")
-
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", op, err)
-	}
-
-	row := stmt.QueryRowContext(ctx, email, passHash)
-
 	var id int64
-	err = row.Scan(&id)
+	err := r.pool.QueryRow(ctx, `
+		INSERT INTO users(email, pass_hash) 
+		VALUES($1, $2) 
+		ON CONFLICT (email) DO NOTHING
+		RETURNING id
+	`, email, passHash).Scan(&id)
+
 	if err != nil {
-		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-			return 0, fmt.Errorf("%s: %w", op, storage.ErrUserExists)
-		}
 		return 0, fmt.Errorf("%s: %w", op, err)
 	}
+
 	return id, nil
 }
 
 // SaveRefreshToken сохраняет refresh токен
-func (s *Storage) SaveRefreshToken(ctx context.Context, token string, userID int64, appID int, expiresAt time.Time) error {
+func (r *Repository) SaveRefreshToken(ctx context.Context, token string, userID int64, appID int, expiresAt time.Time) error {
 	const op = "storage.postgres.SaveRefreshToken"
 
-	stmt, err := s.db.Prepare(`
-        INSERT INTO refresh_tokens(token, user_id, app_id, expires_at) 
-        VALUES($1, $2, $3, $4)
-    `)
+	tag, err := r.pool.Exec(ctx, `
+        INSERT INTO refresh_tokens(token, user_id, app_id, expires_at, created_at) 
+        VALUES($1, $2, $3, $4, now())
+		ON CONFLICT (token) DO NOTHING
+    `, token, userID, appID, expiresAt)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	_, err = stmt.ExecContext(ctx, token, userID, appID, expiresAt)
-	if err != nil {
-		// Проверяем, если это нарушение уникальности токена (должно быть очень редким)
-		var pqErr *pq.Error
-		if errors.As(err, &pqErr) && pqErr.Code == "23505" {
-			// Токен уже существует - генерируем новый и пробуем снова
-			return fmt.Errorf("%s: %w", op, errors.New("token collision, please retry"))
-		}
-		return fmt.Errorf("%s: %w", op, err)
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("%s: %w", op, storage.ErrInvalidRefreshToken)
 	}
 
 	return nil
 }
 
 // GetRefreshToken получает refresh токен
-func (s *Storage) GetRefreshToken(ctx context.Context, token string) (models.RefreshToken, error) {
+func (r *Repository) GetRefreshToken(ctx context.Context, token string) (models.RefreshToken, error) {
 	const op = "storage.postgres.GetRefreshToken"
 
-	stmt, err := s.db.Prepare(`SELECT token, user_id, app_id, expires_at, created_at FROM refresh_tokens WHERE token = $1`)
+	var tkn models.RefreshToken
+	err := r.pool.QueryRow(ctx, `SELECT token, user_id, app_id, expires_at, created_at FROM refresh_tokens WHERE token = $1`, token).Scan(&tkn.Token, &tkn.UserID, &tkn.AppID, &tkn.ExpiresAt, &tkn.CreatedAt)
 	if err != nil {
-		return models.RefreshToken{}, fmt.Errorf("%s: %w ", op, err)
-	}
-
-	row := stmt.QueryRowContext(ctx, token)
-	var rt models.RefreshToken
-	err = row.Scan(&rt.Token, &rt.UserID, &rt.AppID, &rt.ExpiresAt, &rt.CreatedAt)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return models.RefreshToken{}, fmt.Errorf("%s: %w ", op, storage.ErrRefreshTokenNotFound)
-
+		if errors.Is(err, pgx.ErrNoRows) {
+			return models.RefreshToken{}, fmt.Errorf("%s: %w", op, storage.ErrRefreshTokenNotFound)
 		}
-		return models.RefreshToken{}, fmt.Errorf("%s: %w ", op, err)
+		return models.RefreshToken{}, fmt.Errorf("%s: %w", op, err)
 	}
 
-	return rt, nil
+	return tkn, nil
 }
 
 // DeleteRefreshToken удаляет refresh токен
-func (s *Storage) DeleteRefreshToken(ctx context.Context, token string) error {
+func (r *Repository) DeleteRefreshToken(ctx context.Context, token string) error {
 	const op = "storage.postgres.DeleteRefreshToken"
 
-	stmt, err := s.db.Prepare("DELETE FROM refresh_tokens WHERE token = $1")
+	tag, err := r.pool.Exec(ctx, `DELETE FROM refresh_tokens WHERE token = $1`, token)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	_, err = stmt.ExecContext(ctx, token)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("%s: %w", op, storage.ErrRefreshTokenNotFound)
 	}
 
 	return nil
 }
 
 // DeleteAllUserRefreshTokens удаляет все refresh токены пользователя для приложения
-func (s *Storage) DeleteAllUserRefreshTokens(ctx context.Context, userID int64, appID int) error {
+func (r *Repository) DeleteAllUserRefreshTokens(ctx context.Context, userID int64, appID int) error {
 	const op = "storage.postgres.DeleteAllUserRefreshTokens"
 
-	stmt, err := s.db.Prepare("DELETE FROM refresh_tokens WHERE user_id = $1 AND app_id = $2")
+	tag, err := r.pool.Exec(ctx, `DELETE FROM refresh_tokens WHERE user_id = $1 AND app_id = $2`, userID, appID)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	_, err = stmt.ExecContext(ctx, userID, appID)
-	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%s: %w", op, storage.ErrRefreshTokenNotFound)
 	}
 
 	return nil
 }
 
 // User returns user by email.
-func (s *Storage) User(ctx context.Context, email string) (models.User, error) {
+func (r *Repository) User(ctx context.Context, email string) (models.User, error) {
 	const op = "storage.postgres.User"
 
-	stmt, err := s.db.Prepare("SELECT id, email, pass_hash FROM users WHERE email = $1")
-	if err != nil {
-		return models.User{}, fmt.Errorf("%s: %w", op, err)
-	}
-
-	row := stmt.QueryRowContext(ctx, email)
 	var user models.User
-	err = row.Scan(&user.ID, &user.Email, &user.PassHash)
+	err := r.pool.QueryRow(ctx, `SELECT id, email, pass_hash FROM users WHERE email = $1`, email).Scan(&user.ID, &user.Email, &user.PassHash)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return models.User{}, fmt.Errorf("%s: %w", op, storage.ErrUserNotFound)
 		}
-
 		return models.User{}, fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -186,47 +150,30 @@ func (s *Storage) User(ctx context.Context, email string) (models.User, error) {
 }
 
 // App returns app by id.
-func (s *Storage) App(ctx context.Context, id int) (models.App, error) {
+func (r *Repository) App(ctx context.Context, id int) (models.App, error) {
 	const op = "storage.postgres.App"
 
-	stmt, err := s.db.Prepare("SELECT id, name, secret FROM apps WHERE id = $1")
-	if err != nil {
-		return models.App{}, fmt.Errorf("%s: %w", op, err)
-	}
-
-	row := stmt.QueryRowContext(ctx, id)
 	var app models.App
-	err = row.Scan(&app.ID, &app.Name, &app.Secret)
+	err := r.pool.QueryRow(ctx, `SELECT id, name, secret FROM apps WHERE id = $1`, id).Scan(&app.ID, &app.Name, &app.Secret)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return models.App{}, fmt.Errorf("%s: %w", op, storage.ErrAppNotFound)
 		}
-
 		return models.App{}, fmt.Errorf("%s: %w", op, err)
 	}
 
 	return app, nil
 }
 
-// App returns app by id.
-func (s *Storage) IsAdmin(ctx context.Context, userID int64) (bool, error) {
+func (r *Repository) IsAdmin(ctx context.Context, userID int64) (bool, error) {
 	const op = "storage.postgres.IsAdmin"
 
-	stmt, err := s.db.Prepare("SELECT is_admin FROM users WHERE id = $1")
-	if err != nil {
-		return false, fmt.Errorf("%s: %w", op, err)
-	}
-
-	row := stmt.QueryRowContext(ctx, userID)
-
 	var isAdmin bool
-
-	err = row.Scan(&isAdmin)
+	err := r.pool.QueryRow(ctx, `SELECT is_admin FROM users WHERE id = $1`, userID).Scan(&isAdmin)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return false, fmt.Errorf("%s: %w", op, storage.ErrUserNotFound)
 		}
-
 		return false, fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -234,19 +181,13 @@ func (s *Storage) IsAdmin(ctx context.Context, userID int64) (bool, error) {
 }
 
 // UserByID returns user by ID
-func (s *Storage) UserByID(ctx context.Context, userID int64) (models.User, error) {
+func (r *Repository) UserByID(ctx context.Context, userID int64) (models.User, error) {
 	const op = "storage.postgres.UserByID"
 
-	stmt, err := s.db.Prepare("SELECT id, email, pass_hash FROM users WHERE id = $1")
-	if err != nil {
-		return models.User{}, fmt.Errorf("%s: %w", op, err)
-	}
-
-	row := stmt.QueryRowContext(ctx, userID)
 	var user models.User
-	err = row.Scan(&user.ID, &user.Email, &user.PassHash)
+	err := r.pool.QueryRow(ctx, `SELECT id, email, pass_hash FROM users WHERE id = $1`, userID).Scan(&user.ID, &user.Email, &user.PassHash)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return models.User{}, fmt.Errorf("%s: %w", op, storage.ErrUserNotFound)
 		}
 		return models.User{}, fmt.Errorf("%s: %w", op, err)

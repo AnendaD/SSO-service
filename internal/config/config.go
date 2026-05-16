@@ -3,26 +3,32 @@ package config
 import (
 	"flag"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/ilyakaznacheev/cleanenv"
 )
 
 type Config struct {
-	Env             string        `yaml:"env" env-default:"local"`
-	StoragePath     string        `yaml:"storage_path" env-required:"true"`
-	TokenTTL        time.Duration `yaml:"token_ttl" env-required:"true"`
-	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl" env-default:"720h"`
+	Env             string        `yaml:"env" env:"ENV" env-default:"local"`
+	Database        Database      `yaml:"database"`
+	TokenTTL        time.Duration `yaml:"token_ttl" env:"TOKEN_TTL" env-default:"24"`
+	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl" env:"REFRESH_TOKEN_TTL" env-default:"720"`
 	GRPC            GRPCConfig    `yaml:"grpc"`
+	TimeoutDuration time.Duration `yaml:"timeout_duration" env-default:"1m"`
 }
 
 type GRPCConfig struct {
-	Port    int           `yaml:"port"`
-	Timeout time.Duration `yaml:"timeout"`
+	Port    int           `yaml:"port" env-default:"8080"`
+	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
 }
 
-func MustLoad() *Config {
+type Database struct {
+	URL      string `yaml:"storage_path" env:"DATABASE_URL"`
+	MaxConns int    `yaml:"max_conns" env-default:"30"`
+	MinConns int    `yaml:"min_conns" env-default:"1"`
+}
+
+func Load() *Config {
 	configPath := fetchConfigPath()
 	if configPath == "" {
 		panic("config path is empty")
@@ -32,7 +38,6 @@ func MustLoad() *Config {
 }
 
 func MustLoadPath(configPath string) *Config {
-	// check if file exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		panic("config file does not exist: " + configPath)
 	}
@@ -40,50 +45,8 @@ func MustLoadPath(configPath string) *Config {
 	var cfg Config
 
 	if err := cleanenv.ReadConfig(configPath, &cfg); err != nil {
-		content, _ := os.ReadFile(configPath)
-		panic("cannot read config: " + err.Error() + "\nFile content:\n" + string(content))
+		panic("cannot read config: " + err.Error())
 	}
-
-	// Override with environment variables
-
-	// DATABASE_URL override
-	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
-		cfg.StoragePath = dbURL
-	}
-
-	// PORT override (for Koyeb, Heroku, etc.)
-	if portStr := os.Getenv("PORT"); portStr != "" {
-		if port, err := strconv.Atoi(portStr); err == nil {
-			cfg.GRPC.Port = port
-		}
-	}
-
-	// GRPC_PORT override (alternative to PORT)
-	if portStr := os.Getenv("GRPC_PORT"); portStr != "" {
-		if port, err := strconv.Atoi(portStr); err == nil {
-			cfg.GRPC.Port = port
-		}
-	}
-
-	// ENV override
-	if env := os.Getenv("ENV"); env != "" {
-		cfg.Env = env
-	}
-
-	// TOKEN_TTL override
-	if ttlStr := os.Getenv("TOKEN_TTL"); ttlStr != "" {
-		if ttl, err := time.ParseDuration(ttlStr); err == nil {
-			cfg.TokenTTL = ttl
-		}
-	}
-
-	// REFRESH_TOKEN_TTL override
-	if ttlStr := os.Getenv("REFRESH_TOKEN_TTL"); ttlStr != "" {
-		if ttl, err := time.ParseDuration(ttlStr); err == nil {
-			cfg.RefreshTokenTTL = ttl
-		}
-	}
-
 	return &cfg
 }
 

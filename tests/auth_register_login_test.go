@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	emptyAppID = 0
-	appID      = 1
-	appSecret  = "test-secret"
-
+	emptyAppID     = 0
+	appSecret      = "S_pkkg6Lyhbpy6w9doK3S6pV2f0PxekPX_NDL8VY0DM="
+	appID          = 1
 	passDefaultLen = 10
 )
 

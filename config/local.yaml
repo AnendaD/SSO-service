@@ -1,7 +1,11 @@
 env: "local"
-storage_path: "postgres://postgres:Ananda31%24%24@localhost:5432/users?sslmode=disable"
+database:
+  storage_path: "postgres://postgres:Ananda31%24%24@localhost:5432/users?sslmode=disable"
+  max_conns: 30
+  min_conns: 1
 token_ttl: 1h
 refresh_token_ttl: 720h
+timeoutDuration: 1m
 grpc:
-  port: 44044
+  port: 8080
   timeout: 10h

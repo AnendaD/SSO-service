@@ -1,8 +1,0 @@
-env: "prod"
-storage_path: "${DATABASE_URL}"
-token_ttl: 24h
-refresh_token_ttl: 720h
-grpc:
-  port: 8080  # Default port, will be overridden by PORT env var on Koyeb
-  timeout: 5s
-migrations_path: "./migrations"

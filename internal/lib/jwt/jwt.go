@@ -22,7 +22,6 @@ var (
 )
 
 func NewToken(user models.User, app models.App, duration time.Duration) (string, error) {
-
 	claims := Claims{
 		UserID: user.ID,
 		Email:  user.Email,

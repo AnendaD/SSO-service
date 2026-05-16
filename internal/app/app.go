@@ -16,18 +16,14 @@ type App struct {
 func New(
 	log *slog.Logger,
 	grpcPort int,
-	storagePath string,
+	repo *postgres.Repository,
 	tokenTTL time.Duration,
 	refreshTokenTTL time.Duration,
+	timeoutDuration time.Duration,
 ) *App {
-	storage, err := postgres.New(storagePath)
-	if err != nil {
-		panic(err)
-	}
+	authService := auth.New(log, repo, repo, repo, repo, repo, tokenTTL, refreshTokenTTL)
 
-	authService := auth.New(log, storage, storage, storage, storage, storage, tokenTTL, refreshTokenTTL)
-
-	grpcApp := grpcapp.New(log, authService, grpcPort)
+	grpcApp := grpcapp.New(log, authService, grpcPort, timeoutDuration)
 
 	return &App{
 		GRPCServer: grpcApp,

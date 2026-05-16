@@ -1,25 +1,26 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"os/signal"
 	"sso/internal/app"
 	"sso/internal/config"
-	"sso/internal/lib/logger/handlers/slogpretty"
-	"sso/internal/proxy"
+	"sso/internal/logger"
+	"sso/internal/storage/postgres"
 	"sync"
 	"syscall"
+	"time"
 )
 
 const (
 	envLocal = "local"
-	envDev   = "dev"
 	envProd  = "prod"
 )
 
 func main() {
-	cfg := config.MustLoad()
+	cfg := config.Load()
 
 	log := setupLogger(cfg.Env)
 
@@ -27,27 +28,21 @@ func main() {
 		slog.String("env", cfg.Env),
 	)
 
-	application := app.New(log, 44044, cfg.StoragePath, cfg.TokenTTL, cfg.RefreshTokenTTL)
+	pool, err := postgres.NewPool(context.Background(), cfg.Database.URL, cfg.Database.MaxConns, cfg.Database.MinConns)
+	if err != nil {
+		log.Error("failed to connect postgres", "error", err)
+	}
+	defer pool.Close()
+	repo := postgres.NewRepository(pool)
+	application := app.New(log, cfg.GRPC.Port, repo, cfg.TokenTTL, cfg.RefreshTokenTTL, cfg.TimeoutDuration)
 
 	var wg sync.WaitGroup
 
-	// Запускаем gRPC сервер в горутине
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		log.Info("starting gRPC server", slog.Int("port", 44044))
+		log.Info("starting gRPC server", slog.Int("port", cfg.GRPC.Port))
 		application.GRPCServer.MustRun()
-	}()
-
-	// Запускаем HTTP прокси сервер в горутине
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		server := proxy.NewProxyServer("localhost:44044")
-		if err := server.Start("8081", log); err != nil {
-			log.Error("failed to start proxy server", slog.String("error", err.Error()))
-			panic("failed to start proxy server")
-		}
 	}()
 
 	stop := make(chan os.Signal, 1)
@@ -57,8 +52,14 @@ func main() {
 
 	log.Info("shutting down application...")
 
-	// Останавливаем gRPC сервер
-	application.GRPCServer.Stop()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := application.GRPCServer.Stop(shutdownCtx); err != nil {
+		log.Error("grpc shutdown failed", "error", err)
+	}
+
+	wg.Wait()
 
 	log.Info("application stopped")
 }
@@ -68,27 +69,9 @@ func setupLogger(env string) *slog.Logger {
 
 	switch env {
 	case envLocal:
-		log = setupPrettySlog()
-	case envDev:
-		log = slog.New(
-			slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}),
-		)
+		log = logger.New(slog.LevelDebug)
 	case envProd:
-		log = slog.New(
-			slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
-		)
+		log = logger.New(slog.LevelInfo)
 	}
 	return log
-}
-
-func setupPrettySlog() *slog.Logger {
-	opts := slogpretty.PrettyHandlerOptions{
-		SlogOpts: &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		},
-	}
-
-	handler := opts.NewPrettyHandler(os.Stdout)
-
-	return slog.New(handler)
 }

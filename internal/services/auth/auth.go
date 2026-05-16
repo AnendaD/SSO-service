@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"sso/internal/domain/models"
 	"sso/internal/lib/jwt"
-	"sso/internal/lib/logger/sl"
 	refreshtoken "sso/internal/lib/refresh_token"
 	"sso/internal/storage"
 	"time"
@@ -111,18 +110,18 @@ func (a *Auth) Login(
 	user, err := a.usrProvider.User(ctx, email)
 	if err != nil {
 		if errors.Is(err, storage.ErrUserNotFound) {
-			a.log.Warn("user not found", sl.Err(err))
+			a.log.Warn("user not found", "error", err)
 
 			return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 		}
 
-		a.log.Error("failed to get user", sl.Err(err))
+		a.log.Error("failed to get user", "error", err)
 
 		return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
 
 	if err := bcrypt.CompareHashAndPassword(user.PassHash, []byte(password)); err != nil {
-		a.log.Info("invalid credentials", sl.Err(err))
+		a.log.Info("invalid credentials", "error", err)
 
 		return "", "", fmt.Errorf("%s: %w", op, ErrInvalidCredentials)
 	}
@@ -133,7 +132,7 @@ func (a *Auth) Login(
 
 	accesstoken, err := jwt.NewToken(user, app, a.tokenTTL)
 	if err != nil {
-		a.log.Error("failed to generate access token", sl.Err(err))
+		a.log.Error("failed to generate access token", "error", err)
 
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
@@ -141,14 +140,14 @@ func (a *Auth) Login(
 	// Генерация refresh токена
 	refreshToken, err := refreshtoken.NewRefreshToken()
 	if err != nil {
-		a.log.Error("failed to generate refresh token", sl.Err(err))
+		a.log.Error("failed to generate refresh token", "error", err)
 		return "", "", fmt.Errorf("%s: %w ", op, err)
 	}
 
 	// Сохранение refresh токена
 	expiresAt := time.Now().Add(a.refreshTokenTTL)
 	if err := a.tokenSaver.SaveRefreshToken(ctx, refreshToken, user.ID, appID, expiresAt); err != nil {
-		a.log.Error("failed to save refresh token", sl.Err(err))
+		a.log.Error("failed to save refresh token", "error", err)
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -206,7 +205,7 @@ func (a *Auth) RefreshTokens(
 
 	// Удаление старого refresh токена
 	if err := a.tokenProvider.DeleteRefreshToken(ctx, refreshToken); err != nil {
-		log.Warn("failed to delete old refresh token", sl.Err(err))
+		log.Warn("failed to delete old refresh token", "error", err)
 	}
 
 	// Сохранение нового refresh токена
@@ -296,18 +295,18 @@ func (a *Auth) RegisterNewUser(
 
 	passHash, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
 	if err != nil {
-		log.Error("failed to generate password hash", sl.Err(err))
+		log.Error("failed to generate password hash", "error", err)
 
 		return 0, fmt.Errorf("%s: %w", op, err)
 	}
 	id, err := a.usrSaver.SaveUser(ctx, email, passHash)
 	if err != nil {
 		if errors.Is(err, storage.ErrUserExists) {
-			log.Warn("user already exists", sl.Err(err))
+			log.Warn("user already exists", "error", err)
 
 			return 0, fmt.Errorf("%s: %w", op, ErrUserExists)
 		}
-		log.Error("failed to save user", sl.Err(err))
+		log.Error("failed to save user", "error", err)
 
 		return 0, fmt.Errorf("%s: %w", op, err)
 	}
@@ -328,15 +327,15 @@ func (a *Auth) IsAdmin(ctx context.Context, userID int64) (bool, error) {
 
 	log.Info("checking if user is admin")
 
-	isAdmin, error := a.usrProvider.IsAdmin(ctx, userID)
-	if error != nil {
-		if errors.Is(error, storage.ErrUserNotFound) {
-			log.Warn("user not found", sl.Err(error))
+	isAdmin, err := a.usrProvider.IsAdmin(ctx, userID)
+	if err != nil {
+		if errors.Is(err, storage.ErrUserNotFound) {
+			log.Warn("user not found", "error", err)
 
 			return false, fmt.Errorf("%s: %w", op, storage.ErrUserNotFound)
 		}
 		log.Error("failed to check if user is admin")
-		return false, fmt.Errorf("%s: %w", op, error)
+		return false, fmt.Errorf("%s: %w", op, err)
 	}
 
 	log.Info("checked if user is admin", slog.Bool("is_admin", isAdmin))
