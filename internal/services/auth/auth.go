@@ -26,11 +26,7 @@ type Auth struct {
 }
 
 type UserSaver interface {
-	SaveUser(
-		ctx context.Context,
-		email string,
-		passHash []byte,
-	) (uid int64, err error)
+	SaveUser(ctx context.Context, email string, passHash []byte) (uid int64, err error)
 }
 
 type UserProvider interface {
@@ -44,13 +40,7 @@ type AppProvider interface {
 }
 
 type RefreshTokenSaver interface {
-	SaveRefreshToken(
-		ctx context.Context,
-		token string,
-		userID int64,
-		appID int,
-		expiresAt time.Time,
-	) error
+	SaveRefreshToken(ctx context.Context, token string, userID int64, appID int, expiresAt time.Time) error
 }
 
 type RefreshTokenProvider interface {
@@ -69,7 +59,6 @@ var (
 	ErrAccessTokenNotFound = errors.New("access token not found")
 )
 
-// New returns a new instance of the Auth service
 func New(
 	log *slog.Logger,
 	userSaver UserSaver,
@@ -92,12 +81,7 @@ func New(
 	}
 }
 
-func (a *Auth) Login(
-	ctx context.Context,
-	email string,
-	password string,
-	appID int,
-) (string, string, error) {
+func (a *Auth) Login(ctx context.Context, email string, password string, appID int) (string, string, error) {
 	const op = "Auth.Login"
 
 	log := a.log.With(
@@ -137,14 +121,12 @@ func (a *Auth) Login(
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Генерация refresh токена
 	refreshToken, err := refreshtoken.NewRefreshToken()
 	if err != nil {
 		a.log.Error("failed to generate refresh token", "error", err)
 		return "", "", fmt.Errorf("%s: %w ", op, err)
 	}
 
-	// Сохранение refresh токена
 	expiresAt := time.Now().Add(a.refreshTokenTTL)
 	if err := a.tokenSaver.SaveRefreshToken(ctx, refreshToken, user.ID, appID, expiresAt); err != nil {
 		a.log.Error("failed to save refresh token", "error", err)
@@ -156,15 +138,11 @@ func (a *Auth) Login(
 	return accesstoken, refreshToken, nil
 }
 
-func (a *Auth) RefreshTokens(
-	ctx context.Context,
-	refreshToken string,
-) (string, string, error) {
+func (a *Auth) RefreshTokens(ctx context.Context, refreshToken string) (string, string, error) {
 	const op = "auth.RefreshTokens"
 
 	log := a.log.With(slog.String("op", op))
 
-	// Получение refresh токена из бд
 	rt, err := a.tokenProvider.GetRefreshToken(ctx, refreshToken)
 	if err != nil {
 		if errors.Is(err, storage.ErrRefreshTokenNotFound) {
@@ -173,14 +151,11 @@ func (a *Auth) RefreshTokens(
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Проверка  срока действия
 	if time.Now().After(rt.ExpiresAt) {
-		// Удаляем просроченный токен
 		_ = a.tokenProvider.DeleteRefreshToken(ctx, refreshToken)
 		return "", "", fmt.Errorf("%s: %w", op, ErrRefreshTokenExpired)
 	}
 
-	// Получение пользователя и приложения
 	user, err := a.usrProvider.UserByID(ctx, rt.UserID)
 	if err != nil {
 		return "", "", fmt.Errorf("%s: %w", op, err)
@@ -191,24 +166,20 @@ func (a *Auth) RefreshTokens(
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Генерация нового access токена
 	newAccessToken, err := jwt.NewToken(user, app, a.tokenTTL)
 	if err != nil {
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Генерация нового refresh токена
 	newRefreshToken, err := refreshtoken.NewRefreshToken()
 	if err != nil {
 		return "", "", fmt.Errorf("%s: %w", op, err)
 	}
 
-	// Удаление старого refresh токена
 	if err := a.tokenProvider.DeleteRefreshToken(ctx, refreshToken); err != nil {
 		log.Warn("failed to delete old refresh token", "error", err)
 	}
 
-	// Сохранение нового refresh токена
 	expiresAt := time.Now().Add(a.refreshTokenTTL)
 	if err := a.tokenSaver.SaveRefreshToken(ctx, newRefreshToken, user.ID, app.ID, expiresAt); err != nil {
 		return "", "", fmt.Errorf("%s: %w", op, err)
@@ -238,7 +209,6 @@ func (a *Auth) ValidateToken(ctx context.Context, tokenString string) (int64, er
 	validatedClaims, err := jwt.ValidateToken(tokenString, app.Secret)
 	if err != nil {
 		if errors.Is(err, jwt.ErrExpiredToken) {
-			// Токен истек, но мы можем использовать claims для refresh
 			return claims.UserID, jwt.ErrExpiredToken
 		}
 		return 0, fmt.Errorf("%s: %w", op, jwt.ErrInvalidToken)
@@ -247,16 +217,12 @@ func (a *Auth) ValidateToken(ctx context.Context, tokenString string) (int64, er
 	return validatedClaims.UserID, nil
 }
 
-func (a *Auth) Logout(
-	ctx context.Context,
-	refreshToken string,
-) error {
+func (a *Auth) Logout(ctx context.Context, refreshToken string) error {
 	const op = "auth.Logout"
 
-	// Просто удаляем refresh токен
 	if err := a.tokenProvider.DeleteRefreshToken(ctx, refreshToken); err != nil {
 		if errors.Is(err, storage.ErrRefreshTokenNotFound) {
-			return nil // Уже не существует
+			return nil
 		}
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -264,11 +230,7 @@ func (a *Auth) Logout(
 	return nil
 }
 
-func (a *Auth) LogoutAll(
-	ctx context.Context,
-	userID int64,
-	appID int,
-) error {
+func (a *Auth) LogoutAll(ctx context.Context, userID int64, appID int) error {
 	const op = "auth.LogoutAll"
 
 	if err := a.tokenProvider.DeleteAllUserRefreshTokens(ctx, userID, appID); err != nil {
@@ -279,11 +241,7 @@ func (a *Auth) LogoutAll(
 
 }
 
-func (a *Auth) RegisterNewUser(
-	ctx context.Context,
-	email string,
-	pass string,
-) (int64, error) {
+func (a *Auth) RegisterNewUser(ctx context.Context, email string, pass string) (int64, error) {
 	const op = "Auth.RegisterNewUser"
 
 	log := a.log.With(
@@ -316,7 +274,6 @@ func (a *Auth) RegisterNewUser(
 	return id, nil
 }
 
-// IsAdmin checks if user is admin.
 func (a *Auth) IsAdmin(ctx context.Context, userID int64) (bool, error) {
 	const op = "Auth.IsAdmin"
 
@@ -348,9 +305,7 @@ func (a *Auth) IsAdminByToken(ctx context.Context, tokenString string) (bool, er
 
 	userID, err := a.ValidateToken(ctx, tokenString)
 	if err != nil {
-		// Если токен истек, но мы все равно хотим проверить администратора
 		if errors.Is(err, jwt.ErrExpiredToken) {
-			// Извлекаем claims из истекшего токена
 			claims, parseErr := jwt.ParseTokenWithoutValidation(tokenString)
 			if parseErr != nil {
 				return false, fmt.Errorf("%s: %w", op, jwt.ErrInvalidToken)

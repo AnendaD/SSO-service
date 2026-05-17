@@ -82,7 +82,6 @@ func (s *serverAPI) IsAdmin(ctx context.Context, req *ssov1.IsAdminRequest) (*ss
 		if authHeaders := md.Get("authorization"); len(authHeaders) > 0 {
 			token := strings.TrimPrefix(authHeaders[0], "Bearer ")
 			if token != "" {
-				// Используем токен для проверки
 				isAdmin, err := s.auth.IsAdminByToken(ctx, token)
 				if err != nil {
 					if errors.Is(err, auth.ErrUserNotFound) {

@@ -11,15 +11,20 @@ import (
 type Config struct {
 	Env             string        `yaml:"env" env:"ENV" env-default:"local"`
 	Database        Database      `yaml:"database"`
-	TokenTTL        time.Duration `yaml:"token_ttl" env:"TOKEN_TTL" env-default:"24"`
-	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl" env:"REFRESH_TOKEN_TTL" env-default:"720"`
+	TokenTTL        time.Duration `yaml:"token_ttl" env:"TOKEN_TTL" env-default:"24h"`
+	RefreshTokenTTL time.Duration `yaml:"refresh_token_ttl" env:"REFRESH_TOKEN_TTL" env-default:"720h"`
 	GRPC            GRPCConfig    `yaml:"grpc"`
+	HTTP            HTTPConfig    `yaml:"http"`
 	TimeoutDuration time.Duration `yaml:"timeout_duration" env-default:"1m"`
 }
 
 type GRPCConfig struct {
 	Port    int           `yaml:"port" env-default:"8080"`
 	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
+}
+
+type HTTPConfig struct {
+	Port int `yaml:"port" env-default:"8081"`
 }
 
 type Database struct {

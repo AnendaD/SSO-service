@@ -17,7 +17,6 @@ func main() {
 	flag.StringVar(&appName, "app_name", "", "app name")
 	flag.StringVar(&dbPath, "db_name", "", "db name")
 	flag.Parse()
-
 	if appName == "" {
 		panic("app name is required")
 	}
@@ -38,12 +37,11 @@ func createApp(name, dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w ", op, err)
 	}
-	fmt.Printf("secret: %s", secret)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	pool, err := postgres.NewPool(ctx, dbPath, 1, 1)
+	pool, err := postgres.NewPool(ctx, dbPath, 1, 2)
 	if err != nil {
 		return fmt.Errorf("%s: %w ", op, err)
 	}
@@ -55,8 +53,9 @@ func createApp(name, dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w ", op, err)
 	}
+	fmt.Printf("secret: %s", secret)
 	fmt.Println("app added successfully")
-	fmt.Printf("id: %d", appID)
-	fmt.Printf("name: %d", name)
+	fmt.Printf("id: %d\n", appID)
+	fmt.Printf("name: %s", name)
 	return nil
 }

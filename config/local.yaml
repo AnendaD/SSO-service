@@ -9,3 +9,5 @@ timeoutDuration: 1m
 grpc:
   port: 8080
   timeout: 10h
+http:
+  port: 8081

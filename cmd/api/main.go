@@ -9,7 +9,6 @@ import (
 	"sso/internal/config"
 	"sso/internal/logger"
 	"sso/internal/storage/postgres"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -31,16 +30,13 @@ func main() {
 	pool, err := postgres.NewPool(context.Background(), cfg.Database.URL, cfg.Database.MaxConns, cfg.Database.MinConns)
 	if err != nil {
 		log.Error("failed to connect postgres", "error", err)
+		os.Exit(1)
 	}
-	defer pool.Close()
+
 	repo := postgres.NewRepository(pool)
 	application := app.New(log, cfg.GRPC.Port, repo, cfg.TokenTTL, cfg.RefreshTokenTTL, cfg.TimeoutDuration)
 
-	var wg sync.WaitGroup
-
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		log.Info("starting gRPC server", slog.Int("port", cfg.GRPC.Port))
 		application.GRPCServer.MustRun()
 	}()
@@ -59,19 +55,17 @@ func main() {
 		log.Error("grpc shutdown failed", "error", err)
 	}
 
-	wg.Wait()
-
+	pool.Close()
 	log.Info("application stopped")
 }
 
 func setupLogger(env string) *slog.Logger {
-	var log *slog.Logger
-
 	switch env {
 	case envLocal:
-		log = logger.New(slog.LevelDebug)
+		return logger.New(slog.LevelDebug)
 	case envProd:
-		log = logger.New(slog.LevelInfo)
+		return logger.New(slog.LevelInfo)
+	default:
+		return logger.New(slog.LevelInfo)
 	}
-	return log
 }

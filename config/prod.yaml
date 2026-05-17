@@ -7,3 +7,5 @@ refresh_token_ttl: 720h
 timeoutDuration: 1m
 grpc:
   timeout: 5s
+http:
+  port: 8081
