@@ -46,7 +46,7 @@ func main() {
 		http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
-		http.ListenAndServe(":8080", nil)
+		http.ListenAndServe(":8081", nil)
 	}()
 
 	stop := make(chan os.Signal, 1)
