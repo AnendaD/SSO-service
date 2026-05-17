@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"sso/internal/app"
@@ -39,6 +40,13 @@ func main() {
 	go func() {
 		log.Info("starting gRPC server", slog.Int("port", cfg.GRPC.Port))
 		application.GRPCServer.MustRun()
+	}()
+
+	go func() {
+		http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+		http.ListenAndServe(":8080", nil)
 	}()
 
 	stop := make(chan os.Signal, 1)
