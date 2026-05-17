@@ -22,7 +22,7 @@
        │             │
 ┌──────▼──────┐ ┌───▼──────┐
 │ HTTP Proxy  │ │  gRPC    │
-│   :8081     │ │  :8080  │
+│   :8081     │ │  :8080   │
 └──────┬──────┘ └───┬──────┘
        │            │
        └────┬───────┘
@@ -39,7 +39,7 @@
 
 ### Configuration Parameters
 
-- `env` - Environment mode: `local`, `dev`, or `prod`
+- `env` - Environment mode: `local` or `prod`
 - `storage_path` - PostgreSQL connection string
 - `max_conns` - maximum database connections
 - `min_conns` - minimum database connections
