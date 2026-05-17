@@ -20,7 +20,7 @@ func main() {
 	cfg := config.Load()
 	log := setupLogger(cfg.Env)
 
-	proxyServer, err := proxy.NewProxyServer(fmt.Sprintf("localhost:%d", cfg.GRPC.Port), log)
+	proxyServer, err := proxy.NewProxyServer(cfg.GRPC.GRPCAddr, log)
 
 	if err != nil {
 		log.Error("failed to create proxy", "error", err)

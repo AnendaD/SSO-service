@@ -19,8 +19,9 @@ type Config struct {
 }
 
 type GRPCConfig struct {
-	Port    int           `yaml:"port" env-default:"8080"`
-	Timeout time.Duration `yaml:"timeout" env-default:"5s"`
+	GRPCAddr string        `yaml:"grpc_addr" env:"GRPC_ADDR" env-default:"localhost:8080"`
+	Port     int           `yaml:"port" env-default:"8080"`
+	Timeout  time.Duration `yaml:"timeout" env-default:"5s"`
 }
 
 type HTTPConfig struct {
