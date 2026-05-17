@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"sso/internal/app"
 	"sso/internal/config"
 	"sso/internal/logger"
+	"sso/internal/proxy"
 	"sso/internal/storage/postgres"
 	"syscall"
 	"time"
@@ -42,11 +43,18 @@ func main() {
 		application.GRPCServer.MustRun()
 	}()
 
+	proxyServer, err := proxy.NewProxyServer(cfg.GRPC.GRPCAddr, log)
+
+	if err != nil {
+		log.Error("failed to create proxy", "error", err)
+		os.Exit(1)
+	}
+
 	go func() {
-		http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		})
-		http.ListenAndServe(":8081", nil)
+		if err := proxyServer.Start(fmt.Sprintf("%d", cfg.HTTP.Port), log); err != nil {
+			log.Error("proxy failed", "error", err)
+			os.Exit(1)
+		}
 	}()
 
 	stop := make(chan os.Signal, 1)
@@ -62,7 +70,7 @@ func main() {
 	if err := application.GRPCServer.Stop(shutdownCtx); err != nil {
 		log.Error("grpc shutdown failed", "error", err)
 	}
-
+	proxyServer.Close()
 	pool.Close()
 	log.Info("application stopped")
 }

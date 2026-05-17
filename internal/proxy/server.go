@@ -52,6 +52,9 @@ func (s *ProxyServer) Close() error {
 
 func (s *ProxyServer) Start(port string, log *slog.Logger) error {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	mux.HandleFunc("/api/login", corsMiddleware(s.handleLogin))
 	mux.HandleFunc("/api/register", corsMiddleware(s.handleRegister))
 	mux.HandleFunc("/api/refresh", corsMiddleware(s.handleRefresh))
